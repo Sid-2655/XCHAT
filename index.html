@@ -2,32 +2,79 @@
 <html>
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>XCHAT</title>
+
 <style>
-body{background:#000;color:#0f0;font-family:monospace;text-align:center}
-button,input{background:#111;color:#0f0;border:1px solid #0f0;padding:8px;margin:5px}
+*{box-sizing:border-box}
+body{
+  margin:0;
+  background:#000;
+  color:#0f0;
+  font-family:monospace;
+  display:flex;
+  justify-content:center;
+  align-items:center;
+  height:100vh;
+}
+
+.container{
+  width:100%;
+  max-width:500px;
+  padding:20px;
+  text-align:center;
+}
+
+button,input{
+  width:100%;
+  padding:12px;
+  margin:8px 0;
+  background:#111;
+  color:#0f0;
+  border:1px solid #0f0;
+  font-size:16px;
+}
+
+textarea{
+  width:100%;
+  height:250px;
+  background:#111;
+  color:#0f0;
+  border:1px solid #0f0;
+  padding:10px;
+  resize:none;
+}
+
 #chatBox{display:none}
-textarea{width:90%;height:200px;background:#111;color:#0f0;border:1px solid #0f0}
 </style>
 </head>
 <body>
 
+<div class="container">
+
 <div id="home">
   <h2>XCHAT</h2>
-  <button onclick="startHost()">Host</button>
+  <button onclick="showHost()">Host</button>
   <button onclick="showJoin()">Join</button>
 
+  <div id="hostBox" style="display:none">
+    <input id="hostCode" placeholder="Enter Session Code">
+    <button onclick="startHost()">Start Session</button>
+  </div>
+
   <div id="joinBox" style="display:none">
-    <input id="codeInput" placeholder="Enter Session Code">
+    <input id="joinCode" placeholder="Enter Session Code">
     <button onclick="startJoin()">Connect</button>
   </div>
 </div>
 
 <div id="chatBox">
   <h3 id="sessionLabel"></h3>
-  <textarea id="chat" readonly></textarea><br>
+  <textarea id="chat" readonly></textarea>
   <input id="msg" placeholder="Type message...">
   <button onclick="send()">Send</button>
+</div>
+
 </div>
 
 <script>
@@ -40,11 +87,20 @@ let key;
 let sessionCode;
 let connected=false;
 
-// 🔥 CRITICAL FIX: Join listens for data channel
-pc.ondatachannel = (event) => {
+pc.ondatachannel = (event)=>{
   channel = event.channel;
   setupChannel();
 };
+
+function showHost(){
+  document.getElementById("hostBox").style.display="block";
+  document.getElementById("joinBox").style.display="none";
+}
+
+function showJoin(){
+  document.getElementById("joinBox").style.display="block";
+  document.getElementById("hostBox").style.display="none";
+}
 
 async function deriveKey(code){
   const enc=new TextEncoder();
@@ -55,12 +111,6 @@ async function deriveKey(code){
     iterations:100000,
     hash:"SHA-256"
   },base,{name:"AES-GCM",length:256},false,["encrypt","decrypt"]);
-}
-
-function RUN(){
-  alert("SESSION TERMINATED");
-  pc.close();
-  location.reload();
 }
 
 async function encrypt(msg){
@@ -77,36 +127,34 @@ async function decrypt(payload){
     const dec=await crypto.subtle.decrypt({name:"AES-GCM",iv},key,data);
     return new TextDecoder().decode(dec);
   }catch{
-    RUN();
+    location.reload();
   }
 }
 
-function append(text){
-  const chat = document.getElementById("chat");
-  chat.value += text + "\n";
-  chat.scrollTop = chat.scrollHeight;
-}
-
 function setupChannel(){
-  channel.onopen = () => {
+  channel.onopen=()=>{
     connected=true;
     enterChat();
   };
 
-  channel.onmessage = async e=>{
+  channel.onmessage=async e=>{
     const m=await decrypt(e.data);
     if(m) append("Friend: "+m);
   };
 
-  channel.onclose = RUN;
+  channel.onclose=()=>location.reload();
 }
 
-function generateCode(){
-  return Math.random().toString(36).substring(2,8).toUpperCase();
+function append(text){
+  const chat=document.getElementById("chat");
+  chat.value+=text+"\n";
+  chat.scrollTop=chat.scrollHeight;
 }
 
 async function startHost(){
-  sessionCode=generateCode();
+  sessionCode=document.getElementById("hostCode").value.trim().toUpperCase();
+  if(!sessionCode) return alert("Enter a code");
+
   key=await deriveKey(sessionCode);
 
   channel=pc.createDataChannel("secure");
@@ -122,17 +170,12 @@ async function startHost(){
   });
 
   pollAnswer();
-
-  document.getElementById("home").innerHTML=
-    "<h3>Session Code:</h3><h2>"+sessionCode+"</h2><p>Send this to your friend.</p>";
-}
-
-function showJoin(){
-  document.getElementById("joinBox").style.display="block";
 }
 
 async function startJoin(){
-  sessionCode=document.getElementById("codeInput").value.trim().toUpperCase();
+  sessionCode=document.getElementById("joinCode").value.trim().toUpperCase();
+  if(!sessionCode) return alert("Enter a code");
+
   key=await deriveKey(sessionCode);
 
   const res=await fetch("/api/session?id="+sessionCode);
@@ -169,6 +212,7 @@ function enterChat(){
 
 async function send(){
   if(!connected) return;
+
   const input=document.getElementById("msg");
   if(!input.value.trim()) return;
 
