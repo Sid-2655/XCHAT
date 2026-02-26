@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Private Session</title>
+<style>
+body { background:#000; color:#0f0; font-family:monospace; text-align:center }
+input,textarea { width:90%; margin:5px; background:#111; color:#0f0; border:1px solid #0f0 }
+button { padding:6px; margin:5px; background:#0f0; color:#000; cursor:pointer }
+#chat { height:200px }
+</style>
+</head>
+<body>
+
+<h3>Secure Session</h3>
+
+<input id="sessionId" placeholder="Session Code" />
+<input id="secret" placeholder="Shared Secret" />
+<br>
+<button onclick="host()">Host</button>
+<button onclick="join()">Join</button>
+
+<hr>
+
+<textarea id="chat" readonly></textarea><br>
+<input id="msg" placeholder="Type message..." />
+<button onclick="send()">Send</button>
+
+<script src="app.js"></script>
+</body>
+</html>
