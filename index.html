@@ -16,6 +16,7 @@ textarea{width:90%;height:200px;background:#111;color:#0f0;border:1px solid #0f0
   <h2>XCHAT</h2>
   <button onclick="startHost()">Host</button>
   <button onclick="showJoin()">Join</button>
+
   <div id="joinBox" style="display:none">
     <input id="codeInput" placeholder="Enter Session Code">
     <button onclick="startJoin()">Connect</button>
@@ -39,6 +40,12 @@ let key;
 let sessionCode;
 let connected=false;
 
+// 🔥 CRITICAL FIX: Join listens for data channel
+pc.ondatachannel = (event) => {
+  channel = event.channel;
+  setupChannel();
+};
+
 async function deriveKey(code){
   const enc=new TextEncoder();
   const base=await crypto.subtle.importKey("raw",enc.encode(code),{name:"PBKDF2"},false,["deriveKey"]);
@@ -51,9 +58,9 @@ async function deriveKey(code){
 }
 
 function RUN(){
-  alert("RUN!");
+  alert("SESSION TERMINATED");
   pc.close();
-  document.body.innerHTML="<h1 style='color:red'>SESSION TERMINATED</h1>";
+  location.reload();
 }
 
 async function encrypt(msg){
@@ -69,17 +76,29 @@ async function decrypt(payload){
     const iv=new Uint8Array(obj.iv);
     const dec=await crypto.subtle.decrypt({name:"AES-GCM",iv},key,data);
     return new TextDecoder().decode(dec);
-  }catch{RUN();}
+  }catch{
+    RUN();
+  }
 }
 
-function append(text){chat.value+=text+"\n"}
+function append(text){
+  const chat = document.getElementById("chat");
+  chat.value += text + "\n";
+  chat.scrollTop = chat.scrollHeight;
+}
 
 function setupChannel(){
-  channel.onmessage=async e=>{
+  channel.onopen = () => {
+    connected=true;
+    enterChat();
+  };
+
+  channel.onmessage = async e=>{
     const m=await decrypt(e.data);
     if(m) append("Friend: "+m);
   };
-  channel.onclose=RUN;
+
+  channel.onclose = RUN;
 }
 
 function generateCode(){
@@ -122,9 +141,6 @@ async function startJoin(){
 
   await pc.setRemoteDescription(data.offer);
 
-  channel=pc.createDataChannel("secure");
-  setupChannel();
-
   const answer=await pc.createAnswer();
   await pc.setLocalDescription(answer);
 
@@ -133,9 +149,6 @@ async function startJoin(){
     headers:{"Content-Type":"application/json"},
     body:JSON.stringify({id:sessionCode,answer})
   });
-
-  connected=true;
-  enterChat();
 }
 
 async function pollAnswer(){
@@ -143,8 +156,6 @@ async function pollAnswer(){
   const data=await res.json();
   if(data.answer){
     await pc.setRemoteDescription(data.answer);
-    connected=true;
-    enterChat();
   }else{
     setTimeout(pollAnswer,1000);
   }
@@ -157,11 +168,14 @@ function enterChat(){
 }
 
 async function send(){
-  if(!connected) return RUN();
-  const encrypted=await encrypt(msg.value);
+  if(!connected) return;
+  const input=document.getElementById("msg");
+  if(!input.value.trim()) return;
+
+  const encrypted=await encrypt(input.value);
   channel.send(encrypted);
-  append("Me: "+msg.value);
-  msg.value="";
+  append("Me: "+input.value);
+  input.value="";
 }
 </script>
 
