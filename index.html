@@ -6,7 +6,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
 <style>
-body {
+body{
   margin:0;
   background:#000;
   color:#00ff88;
@@ -17,220 +17,82 @@ body {
   height:100vh;
 }
 
-.container {
+.container{
   width:95%;
-  max-width:400px;
+  max-width:420px;
   text-align:center;
 }
 
-button {
+h1{
+  margin-bottom:20px;
+}
+
+button{
+  width:100%;
+  padding:12px;
+  margin:8px 0;
   background:#001a0f;
   border:1px solid #00ff88;
   color:#00ff88;
-  padding:12px;
-  width:100%;
-  margin:8px 0;
   cursor:pointer;
 }
 
-input, textarea {
+input, textarea{
+  width:100%;
+  padding:12px;
+  margin:8px 0;
   background:#000;
   border:1px solid #00ff88;
   color:#00ff88;
-  padding:12px;
-  width:100%;
-  margin:8px 0;
 }
 
-textarea {
+textarea{
   height:200px;
   resize:none;
 }
 
-.hidden { display:none; }
+.hidden{ display:none; }
+
+#status{
+  margin-top:10px;
+  font-size:14px;
+  min-height:20px;
+}
 </style>
 </head>
 <body>
 
 <div class="container">
 
-<!-- HOME -->
+<h1>XCHAT</h1>
+
 <div id="home">
-  <h2>XCHAT</h2>
   <button onclick="showHost()">HOST</button>
   <button onclick="showJoin()">JOIN</button>
 </div>
 
-<!-- HOST FORM -->
 <div id="hostForm" class="hidden">
-  <h3>Host Session</h3>
-  <input id="hostSession" placeholder="Session ID">
+  <input id="hostId" placeholder="Session ID">
   <input id="hostPass" placeholder="Password">
-  <button onclick="startHost()">START</button>
+  <button onclick="startHost()">START HOST</button>
 </div>
 
-<!-- JOIN FORM -->
 <div id="joinForm" class="hidden">
-  <h3>Join Session</h3>
-  <input id="joinSession" placeholder="Session ID">
+  <input id="joinId" placeholder="Session ID">
   <input id="joinPass" placeholder="Password">
-  <button onclick="startJoin()">CONNECT</button>
+  <button onclick="startJoin()">JOIN SESSION</button>
 </div>
 
-<!-- CHAT -->
 <div id="chatScreen" class="hidden">
-  <h3>SECURE CHAT</h3>
   <textarea id="chat" readonly></textarea>
   <input id="msg" placeholder="Type message">
   <button onclick="send()">SEND</button>
 </div>
 
+<div id="status"></div>
+
 </div>
 
-<script>
-let pc;
-let channel;
-let key;
-
-function showHost(){
-  home.classList.add("hidden");
-  hostForm.classList.remove("hidden");
-}
-
-function showJoin(){
-  home.classList.add("hidden");
-  joinForm.classList.remove("hidden");
-}
-
-function showChat(){
-  hostForm.classList.add("hidden");
-  joinForm.classList.add("hidden");
-  chatScreen.classList.remove("hidden");
-}
-
-function createPeer(){
-  pc = new RTCPeerConnection({
-    iceServers:[{urls:"stun:stun.l.google.com:19302"}]
-  });
-
-  pc.ondatachannel = e=>{
-    channel = e.channel;
-    setupChannel();
-  };
-
-  pc.onconnectionstatechange = ()=>{
-    if(pc.connectionState==="connected"){
-      showChat();
-    }
-  };
-}
-
-function setupChannel(){
-  channel.onmessage = async e=>{
-    const msg = await decrypt(e.data);
-    chat.value += "Friend: "+msg+"\n";
-  };
-}
-
-async function deriveKey(pass){
-  const enc = new TextEncoder();
-  const base = await crypto.subtle.importKey("raw", enc.encode(pass), {name:"PBKDF2"}, false, ["deriveKey"]);
-  return crypto.subtle.deriveKey({
-      name:"PBKDF2",
-      salt:enc.encode("xchat"),
-      iterations:100000,
-      hash:"SHA-256"
-    },
-    base,
-    {name:"AES-GCM", length:256},
-    false,
-    ["encrypt","decrypt"]
-  );
-}
-
-async function encrypt(msg){
-  const iv = crypto.getRandomValues(new Uint8Array(12));
-  const data = await crypto.subtle.encrypt({name:"AES-GCM",iv},key,new TextEncoder().encode(msg));
-  return JSON.stringify({d:Array.from(new Uint8Array(data)),iv:Array.from(iv)});
-}
-
-async function decrypt(payload){
-  const obj = JSON.parse(payload);
-  const data = new Uint8Array(obj.d);
-  const iv = new Uint8Array(obj.iv);
-  const dec = await crypto.subtle.decrypt({name:"AES-GCM",iv},key,data);
-  return new TextDecoder().decode(dec);
-}
-
-async function startHost(){
-  const id = hostSession.value.trim();
-  const pass = hostPass.value.trim();
-  if(!id||!pass) return alert("Fill fields");
-
-  key = await deriveKey(pass);
-  createPeer();
-
-  channel = pc.createDataChannel("chat");
-  setupChannel();
-
-  const offer = await pc.createOffer();
-  await pc.setLocalDescription(offer);
-
-  await fetch("/api/session",{
-    method:"POST",
-    headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({id,offer})
-  });
-
-  pollAnswer(id);
-}
-
-async function pollAnswer(id){
-  const res = await fetch("/api/session?id="+id);
-  const data = await res.json();
-
-  if(data.answer){
-    await pc.setRemoteDescription(data.answer);
-  } else {
-    setTimeout(()=>pollAnswer(id),1000);
-  }
-}
-
-async function startJoin(){
-  const id = joinSession.value.trim();
-  const pass = joinPass.value.trim();
-  if(!id||!pass) return alert("Fill fields");
-
-  key = await deriveKey(pass);
-  createPeer();
-
-  const res = await fetch("/api/session?id="+id);
-  const data = await res.json();
-
-  if(!data.offer){
-    return alert("Invalid session or host not ready yet.");
-  }
-
-  await pc.setRemoteDescription(data.offer);
-
-  const answer = await pc.createAnswer();
-  await pc.setLocalDescription(answer);
-
-  await fetch("/api/session",{
-    method:"PUT",
-    headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({id,answer})
-  });
-}
-
-async function send(){
-  if(!msg.value) return;
-  const encrypted = await encrypt(msg.value);
-  channel.send(encrypted);
-  chat.value += "Me: "+msg.value+"\n";
-  msg.value="";
-}
-</script>
-
+<script src="app.js"></script>
 </body>
 </html>
