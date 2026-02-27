@@ -135,11 +135,27 @@ async function startHost(){
 }
 
 async function pollAnswer(){
+  if(pc.connectionState === "connected") return;
   const res = await fetch(`/api/session?id=${sessionId}`);
   if(res.status!==200){
     setTimeout(pollAnswer,1000);
     return;
   }
+
+  const data=await res.json();
+
+  // 🚨 IMPORTANT FIX
+  if(data.answer && pc.signalingState !== "stable"){
+    await pc.setRemoteDescription(data.answer);
+    return; // stop polling after setting answer
+  }
+
+  if(pc.signalingState !== "stable"){
+    setTimeout(pollAnswer,1000);
+  }
+
+  
+}
 
   const data=await res.json();
 
