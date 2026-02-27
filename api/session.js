@@ -1,4 +1,4 @@
-let sessions = {};
+global.sessions = global.sessions || {};
 
 export default function handler(req, res) {
   const { id } = req.query;
@@ -7,35 +7,37 @@ export default function handler(req, res) {
     return res.status(400).json({ error: "No session id" });
   }
 
-  if (!sessions[id]) {
-    sessions[id] = {
+  if (!global.sessions[id]) {
+    global.sessions[id] = {
       offer: null,
       answer: null,
       candidates: []
     };
   }
 
+  const session = global.sessions[id];
+
   if (req.method === "POST") {
-    sessions[id].offer = req.body.offer;
+    session.offer = req.body.offer;
     return res.status(200).json({ ok: true });
   }
 
   if (req.method === "PUT") {
-    sessions[id].answer = req.body.answer;
+    session.answer = req.body.answer;
     return res.status(200).json({ ok: true });
   }
 
   if (req.method === "PATCH") {
-    sessions[id].candidates.push(req.body.candidate);
+    session.candidates.push(req.body.candidate);
     return res.status(200).json({ ok: true });
   }
 
   if (req.method === "GET") {
-    return res.status(200).json(sessions[id]);
+    return res.status(200).json(session);
   }
 
   if (req.method === "DELETE") {
-    delete sessions[id];
+    delete global.sessions[id];
     return res.status(200).json({ deleted: true });
   }
 
