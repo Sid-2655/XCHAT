@@ -1,59 +1,38 @@
 // /api/session.js
 
-if (!global.sessions) {
-  global.sessions = {};
-}
+let sessions = global.sessions || {};
+global.sessions = sessions;
 
-export default function handler(req, res) {
-  const { id } = req.query;
+export default async function handler(req, res) {
+  const { method } = req;
 
-  if (!id) {
-    return res.status(400).json({ error: "No session id" });
-  }
-
-  const sessions = global.sessions;
-
-  console.log("Method:", req.method, "Session:", id);
-
-  // CREATE SESSION (HOST)
-  if (req.method === "POST") {
-    sessions[id] = {
-      offer: req.body.offer,
-      answer: null,
-      candidates: []
-    };
-
-    console.log("Session created:", id);
-    return res.status(200).json({ ok: true });
-  }
-
-  // GET SESSION (JOIN / POLLING)
-  if (req.method === "GET") {
-    const session = sessions[id];
-    if (!session) {
-      return res.status(404).json({ error: "Invalid code" });
+  if (method === "POST") {
+    const { id, offer } = req.body;
+    if (!id || !offer) {
+      return res.status(400).json({ error: "Missing id or offer" });
     }
-    return res.status(200).json(session);
+
+    sessions[id] = { offer, answer: null };
+    return res.status(200).json({ success: true });
   }
 
-  // SAVE ANSWER
-  if (req.method === "PUT") {
+  if (method === "PUT") {
+    const { id, answer } = req.body;
     if (!sessions[id]) {
-      return res.status(404).json({ error: "Invalid code" });
+      return res.status(404).json({ error: "Session not found" });
     }
 
-    sessions[id].answer = req.body.answer;
-    return res.status(200).json({ ok: true });
+    sessions[id].answer = answer;
+    return res.status(200).json({ success: true });
   }
 
-  // SAVE ICE CANDIDATE
-  if (req.method === "PATCH") {
+  if (method === "GET") {
+    const { id } = req.query;
     if (!sessions[id]) {
-      return res.status(404).json({ error: "Invalid code" });
+      return res.status(404).json({ error: "Session not found" });
     }
 
-    sessions[id].candidates.push(req.body.candidate);
-    return res.status(200).json({ ok: true });
+    return res.status(200).json(sessions[id]);
   }
 
   return res.status(405).json({ error: "Method not allowed" });
