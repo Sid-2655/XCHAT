@@ -125,3 +125,23 @@ async function send() {
   append("Me: " + msg.value);
   msg.value="";
 }
+
+
+.flying-text {
+  position: absolute;
+  font-weight: bold;
+  color: #00ff88;
+  pointer-events: none;
+  animation: flyUp 0.8s ease forwards;
+}
+
+@keyframes flyUp {
+  0% {
+    opacity: 1;
+    transform: translateY(0px);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-120px);
+  }
+}
