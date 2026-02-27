@@ -29,16 +29,13 @@ function createPeer(){
     iceServers:[{urls:"stun:stun.l.google.com:19302"}]
   });
 
-  pc.onicecandidate = async e=>{
+  // ✅ FIXED ICE SENDING
+  pc.onicecandidate = async (e)=>{
     if(e.candidate){
-      await fetch("/api/session",{
-        method:"PATCH",
-        headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({
-          id:sessionId,
-          candidate:e.candidate,
-          role
-        })
+      await fetch(`/api/session?id=${sessionId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ candidate: e.candidate })
       });
     }
   };
@@ -63,14 +60,22 @@ function setupChannel(){
   };
 }
 
+// ✅ FIXED polling to match backend
 async function pollCandidates(){
-  const res=await fetch("/api/session?id="+sessionId);
-  if(res.status!==200) return;
+  const res = await fetch(`/api/session?id=${sessionId}`);
+  if(res.status!==200){
+    setTimeout(pollCandidates,1000);
+    return;
+  }
+
   const data=await res.json();
 
-  const list = role==="host" ? data.joinCandidates : data.hostCandidates;
+  if(!data.candidates) {
+    setTimeout(pollCandidates,1000);
+    return;
+  }
 
-  for(const c of list){
+  for(const c of data.candidates){
     try{
       await pc.addIceCandidate(new RTCIceCandidate(c));
     }catch{}
@@ -118,10 +123,10 @@ async function startHost(){
   const offer=await pc.createOffer();
   await pc.setLocalDescription(offer);
 
-  await fetch("/api/session",{
-    method:"POST",
-    headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({id:sessionId,offer})
+  await fetch(`/api/session?id=${sessionId}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ offer })
   });
 
   setStatus("Waiting for peer...");
@@ -130,12 +135,14 @@ async function startHost(){
 }
 
 async function pollAnswer(){
-  const res=await fetch("/api/session?id="+sessionId);
+  const res = await fetch(`/api/session?id=${sessionId}`);
   if(res.status!==200){
     setTimeout(pollAnswer,1000);
     return;
   }
+
   const data=await res.json();
+
   if(data.answer){
     await pc.setRemoteDescription(data.answer);
   }else{
@@ -153,20 +160,29 @@ async function startJoin(){
   key=await deriveKey(pass);
   createPeer();
 
-  const res=await fetch("/api/session?id="+sessionId);
-  if(res.status!==200) return setStatus("Session not found");
+  const res=await fetch(`/api/session?id=${sessionId}`);
+  if(res.status!==200){
+    setStatus("Session not found");
+    return;
+  }
 
   const data=await res.json();
+
+  if(!data.offer){
+    setStatus("Waiting for host...");
+    setTimeout(startJoin,1000);
+    return;
+  }
 
   await pc.setRemoteDescription(data.offer);
 
   const answer=await pc.createAnswer();
   await pc.setLocalDescription(answer);
 
-  await fetch("/api/session",{
-    method:"PUT",
-    headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({id:sessionId,answer})
+  await fetch(`/api/session?id=${sessionId}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ answer })
   });
 
   setStatus("Connecting...");
