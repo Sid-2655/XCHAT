@@ -1,147 +1,156 @@
-let pc = new RTCPeerConnection({
-  iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
-});
-
+let pc;
 let channel;
 let key;
-let connected = false;
 
-async function deriveKey(pass) {
+const statusBox = document.getElementById("status");
+
+function setStatus(text){
+  statusBox.innerText = text;
+}
+
+function showHost(){
+  home.classList.add("hidden");
+  hostForm.classList.remove("hidden");
+}
+
+function showJoin(){
+  home.classList.add("hidden");
+  joinForm.classList.remove("hidden");
+}
+
+function showChat(){
+  hostForm.classList.add("hidden");
+  joinForm.classList.add("hidden");
+  chatScreen.classList.remove("hidden");
+}
+
+function createPeer(){
+  pc = new RTCPeerConnection({
+    iceServers:[{urls:"stun:stun.l.google.com:19302"}]
+  });
+
+  pc.onconnectionstatechange = ()=>{
+    if(pc.connectionState==="connected"){
+      setStatus("✅ Peer Connected");
+      showChat();
+    }
+  };
+
+  pc.ondatachannel = e=>{
+    channel = e.channel;
+    setupChannel();
+  };
+}
+
+function setupChannel(){
+  channel.onmessage = async e=>{
+    const msg = await decrypt(e.data);
+    chat.value += "Friend: "+msg+"\n";
+  };
+}
+
+async function deriveKey(pass){
   const enc = new TextEncoder();
-  const base = await crypto.subtle.importKey("raw", enc.encode(pass), {name:"PBKDF2"}, false, ["deriveKey"]);
+  const base = await crypto.subtle.importKey("raw",enc.encode(pass),{name:"PBKDF2"},false,["deriveKey"]);
   return crypto.subtle.deriveKey({
       name:"PBKDF2",
-      salt:enc.encode("session-salt"),
+      salt:enc.encode("xchat"),
       iterations:100000,
       hash:"SHA-256"
     },
     base,
-    {name:"AES-GCM", length:256},
+    {name:"AES-GCM",length:256},
     false,
     ["encrypt","decrypt"]
   );
 }
 
-function RUN() {
-  alert("RUN!");
-  pc.close();
-  document.body.innerHTML = "<h1 style='color:red'>SESSION TERMINATED</h1>";
-}
-
-async function encrypt(msg) {
+async function encrypt(msg){
   const iv = crypto.getRandomValues(new Uint8Array(12));
-  const enc = new TextEncoder().encode(msg);
-  const data = await crypto.subtle.encrypt({name:"AES-GCM", iv}, key, enc);
-  return JSON.stringify({d:Array.from(new Uint8Array(data)),iv:Array.from(iv)});
+  const enc = await crypto.subtle.encrypt({name:"AES-GCM",iv},key,new TextEncoder().encode(msg));
+  return JSON.stringify({d:Array.from(new Uint8Array(enc)),iv:Array.from(iv)});
 }
 
-async function decrypt(payload) {
-  try {
-    const obj = JSON.parse(payload);
-    const data = new Uint8Array(obj.d);
-    const iv = new Uint8Array(obj.iv);
-    const dec = await crypto.subtle.decrypt({name:"AES-GCM", iv}, key, data);
-    return new TextDecoder().decode(dec);
-  } catch {
-    RUN();
-  }
+async function decrypt(payload){
+  const obj = JSON.parse(payload);
+  const dec = await crypto.subtle.decrypt({name:"AES-GCM",iv:new Uint8Array(obj.iv)},key,new Uint8Array(obj.d));
+  return new TextDecoder().decode(dec);
 }
 
-function append(text) {
-  chat.value += text + "\n";
-}
+async function startHost(){
+  const id = hostId.value.trim();
+  const pass = hostPass.value.trim();
+  if(!id||!pass) return alert("Fill all fields");
 
-function setupChannel() {
-  channel.onmessage = async e => {
-    const msg = await decrypt(e.data);
-    if(msg) append("Friend: " + msg);
-  };
-  channel.onclose = RUN;
-}
+  setStatus("⏳ Creating session...");
+  key = await deriveKey(pass);
+  createPeer();
 
-async function host() {
-  key = await deriveKey(secret.value);
-  channel = pc.createDataChannel("secure");
+  channel = pc.createDataChannel("chat");
   setupChannel();
 
   const offer = await pc.createOffer();
   await pc.setLocalDescription(offer);
 
-  await fetch("/api/session", {
+  await fetch("/api/session",{
     method:"POST",
-    headers:{ "Content-Type":"application/json" },
-    body: JSON.stringify({
-      id: sessionId.value,
-      offer: offer
-    })
+    headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({id,offer})
   });
 
-  pollForAnswer();
+  setStatus("🟢 Waiting for peer to join...");
+  pollAnswer(id);
 }
 
-async function join() {
-  key = await deriveKey(secret.value);
+async function pollAnswer(id){
+  const res = await fetch("/api/session?id="+id);
+  if(res.status!==200){
+    setTimeout(()=>pollAnswer(id),1000);
+    return;
+  }
 
-  const res = await fetch("/api/session?id=" + sessionId.value);
+  const data = await res.json();
+  if(data.answer){
+    await pc.setRemoteDescription(data.answer);
+  }else{
+    setTimeout(()=>pollAnswer(id),1000);
+  }
+}
+
+async function startJoin(){
+  const id = joinId.value.trim();
+  const pass = joinPass.value.trim();
+  if(!id||!pass) return alert("Fill all fields");
+
+  setStatus("🔎 Looking for host...");
+  key = await deriveKey(pass);
+  createPeer();
+
+  const res = await fetch("/api/session?id="+id);
+  if(res.status!==200){
+    return setStatus("❌ Session not found");
+  }
+
   const data = await res.json();
 
-  if(!data.offer) return alert("Invalid session");
-
   await pc.setRemoteDescription(data.offer);
-
-  channel = pc.createDataChannel("secure");
-  setupChannel();
 
   const answer = await pc.createAnswer();
   await pc.setLocalDescription(answer);
 
-  await fetch("/api/session", {
+  await fetch("/api/session",{
     method:"PUT",
-    headers:{ "Content-Type":"application/json" },
-    body: JSON.stringify({
-      id: sessionId.value,
-      answer: answer
-    })
+    headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({id,answer})
   });
 
-  connected = true;
+  setStatus("⏳ Connecting to peer...");
 }
 
-async function pollForAnswer() {
-  const res = await fetch("/api/session?id=" + sessionId.value);
-  const data = await res.json();
-  if(data.answer) {
-    await pc.setRemoteDescription(data.answer);
-    connected = true;
-  } else {
-    setTimeout(pollForAnswer, 1000);
-  }
-}
-
-async function send() {
-  if(!connected) return RUN();
-  const encrypted = await encrypt(msg.value);
-  channel.send(encrypted);
-  append("Me: " + msg.value);
+async function send(){
+  if(!msg.value) return;
+  const enc = await encrypt(msg.value);
+  channel.send(enc);
+  chat.value += "Me: "+msg.value+"\n";
   msg.value="";
-}
-
-
-.flying-text {
-  position: absolute;
-  font-weight: bold;
-  color: #00ff88;
-  pointer-events: none;
-  animation: flyUp 0.8s ease forwards;
-}
-
-@keyframes flyUp {
-  0% {
-    opacity: 1;
-    transform: translateY(0px);
-  }
-  100% {
-    opacity: 0;
-    transform: translateY(-120px);
-  }
 }
