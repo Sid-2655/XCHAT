@@ -1,125 +1,95 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <meta charset="UTF-8">
-  <title>XChat</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta charset="UTF-8">
+<title>XChat</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-  <style>
-    body {
-      margin: 0;
-      padding: 0;
-      background-color: #000;
-      color: #00ff88;
-      font-family: monospace;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      height: 100vh;
-    }
+<style>
+body {
+  margin: 0;
+  background: #000;
+  color: #00ff88;
+  font-family: monospace;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 100vh;
+}
 
-    .container {
-      width: 95%;
-      max-width: 450px;
-      display: flex;
-      flex-direction: column;
-      gap: 10px;
-    }
+.container {
+  width: 95%;
+  max-width: 450px;
+  text-align: center;
+}
 
-    h2 {
-      text-align: center;
-      margin-bottom: 10px;
-      letter-spacing: 2px;
-    }
-   
-   .ticker {
+button {
+  background: #001a0f;
+  border: 1px solid #00ff88;
+  color: #00ff88;
+  padding: 12px;
+  margin: 8px 0;
   width: 100%;
-  overflow: hidden;
-  white-space: nowrap;
-  border-top: 1px solid #00ff88;
-  border-bottom: 1px solid #00ff88;
-  padding: 6px 0;
+  font-size: 16px;
+  border-radius: 4px;
+  cursor: pointer;
 }
 
-.ticker-text {
-  display: inline-block;
-  padding-left: 100%;
-  animation: scrollText 12s linear infinite;
+button:hover {
+  background: #00331f;
+}
+
+input {
+  background: #000;
+  border: 1px solid #00ff88;
+  color: #00ff88;
+  padding: 12px;
+  width: 100%;
+  margin: 8px 0;
+  border-radius: 4px;
+}
+
+#chatScreen {
+  display: none;
+}
+
+#chat {
+  border: 1px solid #00ff88;
+  height: 220px;
+  overflow-y: auto;
+  padding: 10px;
+  margin-bottom: 10px;
+  text-align: left;
+  background: #00110a;
+}
+
+.status {
+  margin: 10px 0;
   font-size: 14px;
-  letter-spacing: 1px;
 }
-
-@keyframes scrollText {
-  0% { transform: translateX(0); }
-  100% { transform: translateX(-100%); }
-}
-
-    
-    button {
-      background-color: #001a0f;
-      border: 1px solid #00ff88;
-      color: #00ff88;
-      padding: 12px;
-      font-size: 16px;
-      cursor: pointer;
-      border-radius: 4px;
-    }
-
-    button:hover {
-      background-color: #00331f;
-    }
-
-    input {
-      background-color: #000;
-      border: 1px solid #00ff88;
-      color: #00ff88;
-      padding: 12px;
-      font-size: 16px;
-      border-radius: 4px;
-      outline: none;
-    }
-
-    #chat {
-      border: 1px solid #00ff88;
-      height: 220px;
-      overflow-y: auto;
-      padding: 10px;
-      font-size: 14px;
-      background-color: #00110a;
-    }
-
-    .status {
-      text-align: center;
-      font-size: 14px;
-      opacity: 0.8;
-    }
-  </style>
+</style>
 </head>
 
 <body>
 
 <div class="container">
 
-  <h2>🔐 XCHAT ENCRYPTED</h2>
-   
-<div class="ticker">
-  <div class="ticker-text">
-    ⚠️ XCHAT UNDER DEVELOPMENT ⚠️ - 😍 STAY TUNED FOR EXCITING CHANGES 😍
+  <!-- HOME SCREEN -->
+  <div id="homeScreen">
+    <h2>🔐 XCHAT</h2>
+    <button onclick="showHost()">HOST</button>
+    <button onclick="showJoin()">JOIN</button>
+    <div id="controls"></div>
+    <div class="status" id="status"></div>
   </div>
-</div>
 
-
-  <button onclick="showHost()">HOST</button>
-  <button onclick="showJoin()">JOIN</button>
-
-  <div id="controls"></div>
-
-  <div class="status" id="status">Idle</div>
-
-  <div id="chat"></div>
-
-  <input id="messageInput" placeholder="Type encrypted message..." />
-  <button onclick="sendMessage()">SEND</button>
+  <!-- CHAT SCREEN -->
+  <div id="chatScreen">
+    <h2>🟢 SECURE CHAT</h2>
+    <div id="chat"></div>
+    <input id="messageInput" placeholder="Type encrypted message..." />
+    <button onclick="sendMessage()">SEND</button>
+  </div>
 
 </div>
 
@@ -131,6 +101,11 @@ let pollInterval;
 
 function setStatus(text) {
   document.getElementById("status").innerText = text;
+}
+
+function switchToChat() {
+  document.getElementById("homeScreen").style.display = "none";
+  document.getElementById("chatScreen").style.display = "block";
 }
 
 function createPeer() {
@@ -152,8 +127,8 @@ function createPeer() {
 
   pc.onconnectionstatechange = () => {
     if (pc.connectionState === "connected") {
-      setStatus("🟢 Secure channel established");
       clearInterval(pollInterval);
+      switchToChat();
     }
   };
 
@@ -178,26 +153,22 @@ function addMessage(msg) {
 function showHost() {
   document.getElementById("controls").innerHTML = `
     <input id="hostCode" placeholder="Enter your custom session code" />
-    <button onclick="hostSession()">Create Secure Session</button>
+    <button onclick="hostSession()">Create Session</button>
   `;
 }
 
 function showJoin() {
   document.getElementById("controls").innerHTML = `
     <input id="joinCode" placeholder="Enter session code" />
-    <button onclick="joinSession()">Join Secure Session</button>
+    <button onclick="joinSession()">Join Session</button>
   `;
 }
 
 async function hostSession() {
   sessionId = document.getElementById("hostCode").value.trim();
+  if (!sessionId) return alert("Enter a code");
 
-  if (!sessionId) {
-    alert("Enter a code");
-    return;
-  }
-
-  setStatus("🟢 Creating session...");
+  setStatus("Creating session...");
 
   createPeer();
   dc = pc.createDataChannel("chat");
@@ -212,7 +183,7 @@ async function hostSession() {
     body: JSON.stringify({ offer })
   });
 
-  setStatus("🟢 Session created. Waiting for peer...");
+  setStatus("Waiting for peer...");
 
   pollInterval = setInterval(async () => {
     const res = await fetch(`/api/session?id=${sessionId}`);
@@ -234,25 +205,19 @@ async function hostSession() {
 
 async function joinSession() {
   sessionId = document.getElementById("joinCode").value.trim();
+  if (!sessionId) return alert("Enter a code");
 
-  if (!sessionId) {
-    alert("Enter a code");
-    return;
-  }
-
-  setStatus("🟢 Searching session...");
+  setStatus("Searching session...");
 
   createPeer();
 
   const res = await fetch(`/api/session?id=${sessionId}`);
   if (!res.ok) {
-    setStatus("🔴 Invalid code");
+    setStatus("Invalid code");
     return;
   }
 
   const data = await res.json();
-
-  setStatus("🟢 Session found. Connecting...");
 
   await pc.setRemoteDescription(data.offer);
 
@@ -281,7 +246,6 @@ async function joinSession() {
 
 function sendMessage() {
   const input = document.getElementById("messageInput");
-
   if (!dc || dc.readyState !== "open") return;
 
   dc.send(input.value);
