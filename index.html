@@ -17,14 +17,12 @@ body{
   align-items:center;
   height:100vh;
 }
-
 .container{
   width:100%;
   max-width:500px;
   padding:20px;
   text-align:center;
 }
-
 button,input{
   width:100%;
   padding:12px;
@@ -34,7 +32,6 @@ button,input{
   border:1px solid #0f0;
   font-size:16px;
 }
-
 textarea{
   width:100%;
   height:250px;
@@ -44,7 +41,6 @@ textarea{
   padding:10px;
   resize:none;
 }
-
 #chatBox{display:none}
 .status{margin:10px 0;color:#0ff}
 .kill{background:#300;border:1px solid red;color:red}
@@ -91,12 +87,18 @@ let connected=false;
 
 function createPeer(){
   pc = new RTCPeerConnection({
-    iceServers:[
-      {urls:"stun:stun.l.google.com:19302"},
-      // 🔐 Add TURN here if you get one:
-      // {urls:"turn:yourturnserver", username:"user", credential:"pass"}
-    ]
+    iceServers:[{urls:"stun:stun.l.google.com:19302"}]
   });
+
+  pc.onicecandidate = async e=>{
+    if(e.candidate){
+      await fetch("/api/session",{
+        method:"PATCH",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({id:sessionCode,candidate:e.candidate})
+      });
+    }
+  };
 
   pc.ondatachannel = e=>{
     channel=e.channel;
@@ -202,7 +204,7 @@ async function startHost(){
   });
 
   setStatus("🟢 Session created. Waiting for peer...");
-  pollAnswer();
+  poll();
 }
 
 async function startJoin(){
@@ -228,19 +230,24 @@ async function startJoin(){
   });
 
   setStatus("🟢 Connecting...");
+  poll();
 }
 
-async function pollAnswer(){
+async function poll(){
   const res=await fetch("/api/session?id="+sessionCode);
   const data=await res.json();
-  if(data.answer){
-    await pc.setRemoteDescription(data.answer);
 
-    // 🔥 AUTO DELETE SESSION AFTER CONNECT
-    await fetch("/api/session?id="+sessionCode,{method:"DELETE"});
-  }else{
-    setTimeout(pollAnswer,1000);
+  if(data.answer && !pc.currentRemoteDescription){
+    await pc.setRemoteDescription(data.answer);
   }
+
+  if(data.candidates){
+    for(const c of data.candidates){
+      try{ await pc.addIceCandidate(c); }catch{}
+    }
+  }
+
+  setTimeout(poll,1000);
 }
 
 function enterChat(){
