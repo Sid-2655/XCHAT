@@ -1,49 +1,38 @@
-// /api/session.js
-
-let sessions = global.sessions || {};
-global.sessions = sessions;
+let sessions = {};
 
 export default function handler(req, res) {
-  const { method } = req;
+  const { id } = req.query;
 
-  if (method === "POST") {
-    const { id, offer } = req.body;
+  if (!id) {
+    return res.status(400).json({ error: "No session id" });
+  }
+
+  if (!sessions[id]) {
     sessions[id] = {
-      offer,
+      offer: null,
       answer: null,
-      hostCandidates: [],
-      joinCandidates: []
+      candidates: []
     };
+  }
+
+  if (req.method === "POST") {
+    sessions[id].offer = req.body.offer;
     return res.status(200).json({ ok: true });
   }
 
-  if (method === "PUT") {
-    const { id, answer } = req.body;
-    if (!sessions[id]) return res.status(404).json({ error: "No session" });
-
-    sessions[id].answer = answer;
+  if (req.method === "PUT") {
+    sessions[id].answer = req.body.answer;
     return res.status(200).json({ ok: true });
   }
 
-  if (method === "PATCH") {
-    const { id, candidate, role } = req.body;
-    if (!sessions[id]) return res.status(404).json({ error: "No session" });
-
-    if (role === "host") {
-      sessions[id].hostCandidates.push(candidate);
-    } else {
-      sessions[id].joinCandidates.push(candidate);
-    }
-
+  if (req.method === "PATCH") {
+    sessions[id].candidates.push(req.body.candidate);
     return res.status(200).json({ ok: true });
   }
 
-  if (method === "GET") {
-    const { id } = req.query;
-    if (!sessions[id]) return res.status(404).json({ error: "No session" });
-
+  if (req.method === "GET") {
     return res.status(200).json(sessions[id]);
   }
 
-  return res.status(405).end();
+  return res.status(405).json({ error: "Method not allowed" });
 }
