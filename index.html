@@ -2,7 +2,7 @@
 <html>
 <head>
 <meta charset="UTF-8">
-<title>XChat</title>
+<title>XCHAT Secure</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
 <style>
@@ -39,7 +39,7 @@ button:hover {
   background: #00331f;
 }
 
-input {
+input, textarea {
   background: #000;
   border: 1px solid #00ff88;
   color: #00ff88;
@@ -49,23 +49,28 @@ input {
   border-radius: 4px;
 }
 
+textarea {
+  height: 200px;
+  resize: none;
+}
+
 #chatScreen {
   display: none;
 }
 
-#chat {
-  border: 1px solid #00ff88;
-  height: 220px;
-  overflow-y: auto;
-  padding: 10px;
-  margin-bottom: 10px;
-  text-align: left;
-  background: #00110a;
+.flying-text {
+  position: absolute;
+  font-weight: bold;
+  color: #00ff88;
+  pointer-events: none;
+  animation: flyUp 1s ease forwards;
+  text-shadow: 0 0 8px #00ff88;
 }
 
-.status {
-  margin: 10px 0;
-  font-size: 14px;
+@keyframes flyUp {
+  0% { opacity:1; transform:translateY(0px) scale(1); }
+  50% { opacity:1; transform:translateY(-60px) scale(1.1); }
+  100% { opacity:0; transform:translateY(-120px) scale(0.9); }
 }
 </style>
 </head>
@@ -74,183 +79,196 @@ input {
 
 <div class="container">
 
-  <!-- HOME SCREEN -->
-  <div id="homeScreen">
-    <h2>🔐 XCHAT</h2>
-    <button onclick="showHost()">HOST</button>
-    <button onclick="showJoin()">JOIN</button>
-    <div id="controls"></div>
-    <div class="status" id="status"></div>
-  </div>
+<div id="homeScreen">
+  <h2>🔐 XCHAT SECURE</h2>
+  <input id="sessionId" placeholder="Session ID">
+  <input id="secret" placeholder="Shared Secret (Password)">
+  <button onclick="host()">HOST</button>
+  <button onclick="join()">JOIN</button>
+</div>
 
-  <!-- CHAT SCREEN -->
-  <div id="chatScreen">
-    <h2>🟢 SECURE CHAT</h2>
-    <div id="chat"></div>
-    <input id="messageInput" placeholder="Type encrypted message..." />
-    <button onclick="sendMessage()">SEND</button>
-  </div>
+<div id="chatScreen">
+  <h2>🟢 SECURE CHANNEL</h2>
+  <textarea id="chat" readonly></textarea>
+  <input id="msg" placeholder="Type encrypted message">
+  <button onclick="send()">SEND</button>
+  <button onclick="RUN()">RUN!</button>
+</div>
 
 </div>
 
 <script>
-let pc;
-let dc;
-let sessionId;
-let pollInterval;
+let pc = new RTCPeerConnection({
+  iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
+});
 
-function setStatus(text) {
-  document.getElementById("status").innerText = text;
+let channel;
+let key;
+let connected = false;
+
+pc.ondatachannel = (event) => {
+  channel = event.channel;
+  setupChannel();
+};
+
+pc.onconnectionstatechange = () => {
+  if (pc.connectionState === "connected") {
+    connected = true;
+    document.getElementById("homeScreen").style.display = "none";
+    document.getElementById("chatScreen").style.display = "block";
+  }
+};
+
+async function deriveKey(pass) {
+  const enc = new TextEncoder();
+  const base = await crypto.subtle.importKey("raw", enc.encode(pass), {name:"PBKDF2"}, false, ["deriveKey"]);
+  return crypto.subtle.deriveKey({
+      name:"PBKDF2",
+      salt:enc.encode("session-salt"),
+      iterations:100000,
+      hash:"SHA-256"
+    },
+    base,
+    {name:"AES-GCM", length:256},
+    false,
+    ["encrypt","decrypt"]
+  );
 }
 
-function switchToChat() {
-  document.getElementById("homeScreen").style.display = "none";
-  document.getElementById("chatScreen").style.display = "block";
+function RUN() {
+  alert("RUN!");
+  pc.close();
+  document.body.innerHTML = "<h1 style='color:red;text-align:center;margin-top:40vh;'>SESSION TERMINATED</h1>";
 }
 
-function createPeer() {
-  pc = new RTCPeerConnection({
-    iceServers: [
-      { urls: "stun:stun.l.google.com:19302" }
-    ]
-  });
-
-  pc.onicecandidate = async (event) => {
-    if (event.candidate) {
-      await fetch(`/api/session?id=${sessionId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ candidate: event.candidate })
-      });
-    }
-  };
-
-  pc.onconnectionstatechange = () => {
-    if (pc.connectionState === "connected") {
-      clearInterval(pollInterval);
-      switchToChat();
-    }
-  };
-
-  pc.ondatachannel = (event) => {
-    dc = event.channel;
-    setupDataChannel();
-  };
+async function encrypt(msg) {
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const enc = new TextEncoder().encode(msg);
+  const data = await crypto.subtle.encrypt({name:"AES-GCM", iv}, key, enc);
+  return JSON.stringify({d:Array.from(new Uint8Array(data)),iv:Array.from(iv)});
 }
 
-function setupDataChannel() {
-  dc.onmessage = (event) => {
-    addMessage("Peer: " + event.data);
-  };
+async function decrypt(payload) {
+  try {
+    const obj = JSON.parse(payload);
+    const data = new Uint8Array(obj.d);
+    const iv = new Uint8Array(obj.iv);
+    const dec = await crypto.subtle.decrypt({name:"AES-GCM", iv}, key, data);
+    return new TextDecoder().decode(dec);
+  } catch {
+    RUN();
+  }
 }
 
-function addMessage(msg) {
-  const chat = document.getElementById("chat");
-  chat.innerHTML += "<div>" + msg + "</div>";
+function append(text) {
+  chat.value += text + "\n";
   chat.scrollTop = chat.scrollHeight;
 }
 
-function showHost() {
-  document.getElementById("controls").innerHTML = `
-    <input id="hostCode" placeholder="Enter your custom session code" />
-    <button onclick="hostSession()">Create Session</button>
-  `;
+function setupChannel() {
+  channel.onmessage = async e => {
+    const msg = await decrypt(e.data);
+    if(msg) append("Friend: " + msg);
+  };
+  channel.onclose = RUN;
 }
 
-function showJoin() {
-  document.getElementById("controls").innerHTML = `
-    <input id="joinCode" placeholder="Enter session code" />
-    <button onclick="joinSession()">Join Session</button>
-  `;
-}
+async function host() {
+  key = await deriveKey(secret.value);
 
-async function hostSession() {
-  sessionId = document.getElementById("hostCode").value.trim();
-  if (!sessionId) return alert("Enter a code");
-
-  setStatus("Creating session...");
-
-  createPeer();
-  dc = pc.createDataChannel("chat");
-  setupDataChannel();
+  channel = pc.createDataChannel("secure");
+  setupChannel();
 
   const offer = await pc.createOffer();
   await pc.setLocalDescription(offer);
 
-  await fetch(`/api/session?id=${sessionId}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ offer })
+  await fetch("/api/session", {
+    method:"POST",
+    headers:{ "Content-Type":"application/json" },
+    body: JSON.stringify({
+      id: sessionId.value,
+      offer: offer
+    })
   });
 
-  setStatus("Waiting for peer...");
-
-  pollInterval = setInterval(async () => {
-    const res = await fetch(`/api/session?id=${sessionId}`);
-    if (!res.ok) return;
-
-    const data = await res.json();
-
-    if (data.answer && !pc.currentRemoteDescription) {
-      await pc.setRemoteDescription(data.answer);
-    }
-
-    if (data.candidates) {
-      for (const candidate of data.candidates) {
-        try { await pc.addIceCandidate(candidate); } catch {}
-      }
-    }
-  }, 2000);
+  pollForAnswer();
 }
 
-async function joinSession() {
-  sessionId = document.getElementById("joinCode").value.trim();
-  if (!sessionId) return alert("Enter a code");
+async function join() {
+  key = await deriveKey(secret.value);
 
-  setStatus("Searching session...");
-
-  createPeer();
-
-  const res = await fetch(`/api/session?id=${sessionId}`);
-  if (!res.ok) {
-    setStatus("Invalid code");
-    return;
-  }
-
+  const res = await fetch("/api/session?id=" + sessionId.value);
   const data = await res.json();
+
+  if(!data.offer) return alert("Invalid session");
 
   await pc.setRemoteDescription(data.offer);
 
   const answer = await pc.createAnswer();
   await pc.setLocalDescription(answer);
 
-  await fetch(`/api/session?id=${sessionId}`, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ answer })
+  await fetch("/api/session", {
+    method:"PUT",
+    headers:{ "Content-Type":"application/json" },
+    body: JSON.stringify({
+      id: sessionId.value,
+      answer: answer
+    })
   });
-
-  pollInterval = setInterval(async () => {
-    const res = await fetch(`/api/session?id=${sessionId}`);
-    if (!res.ok) return;
-
-    const updated = await res.json();
-
-    if (updated.candidates) {
-      for (const candidate of updated.candidates) {
-        try { await pc.addIceCandidate(candidate); } catch {}
-      }
-    }
-  }, 2000);
 }
 
-function sendMessage() {
-  const input = document.getElementById("messageInput");
-  if (!dc || dc.readyState !== "open") return;
+async function pollForAnswer() {
+  const res = await fetch("/api/session?id=" + sessionId.value);
+  const data = await res.json();
+  if(data.answer) {
+    await pc.setRemoteDescription(data.answer);
+  } else {
+    setTimeout(pollForAnswer, 1000);
+  }
+}
 
-  dc.send(input.value);
-  addMessage("You: " + input.value);
-  input.value = "";
+function randomChar() {
+  const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789@#$%&";
+  return chars[Math.floor(Math.random() * chars.length)];
+}
+
+async function send() {
+  if(!connected) return RUN();
+  if(!msg.value) return;
+
+  const text = msg.value;
+
+  const rect = msg.getBoundingClientRect();
+  const flying = document.createElement("div");
+  flying.className = "flying-text";
+  flying.style.left = rect.left + "px";
+  flying.style.top = rect.top + "px";
+  document.body.appendChild(flying);
+
+  let progress = 0;
+
+  const glitch = setInterval(() => {
+    let encryptedDisplay = "";
+    for (let i = 0; i < text.length; i++) {
+      encryptedDisplay += Math.random() > progress
+        ? randomChar()
+        : text[i];
+    }
+
+    flying.innerText = encryptedDisplay;
+    progress += 0.08;
+
+    if (progress >= 1) {
+      clearInterval(glitch);
+      flying.remove();
+      append("Me: " + text);
+    }
+  }, 50);
+
+  const encrypted = await encrypt(text);
+  channel.send(encrypted);
+
+  msg.value="";
 }
 </script>
 
