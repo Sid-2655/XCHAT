@@ -29,7 +29,6 @@ function createPeer(){
     iceServers:[{urls:"stun:stun.l.google.com:19302"}]
   });
 
-  // ✅ FIXED ICE SENDING
   pc.onicecandidate = async (e)=>{
     if(e.candidate){
       await fetch(`/api/session?id=${sessionId}`, {
@@ -60,8 +59,9 @@ function setupChannel(){
   };
 }
 
-// ✅ FIXED polling to match backend
 async function pollCandidates(){
+  if(pc.connectionState === "connected") return;
+
   const res = await fetch(`/api/session?id=${sessionId}`);
   if(res.status!==200){
     setTimeout(pollCandidates,1000);
@@ -70,7 +70,7 @@ async function pollCandidates(){
 
   const data=await res.json();
 
-  if(!data.candidates) {
+  if(!data.candidates){
     setTimeout(pollCandidates,1000);
     return;
   }
@@ -82,6 +82,25 @@ async function pollCandidates(){
   }
 
   setTimeout(pollCandidates,1000);
+}
+
+async function pollAnswer(){
+  if(pc.connectionState === "connected") return;
+
+  const res = await fetch(`/api/session?id=${sessionId}`);
+  if(res.status!==200){
+    setTimeout(pollAnswer,1000);
+    return;
+  }
+
+  const data=await res.json();
+
+  if(data.answer && pc.signalingState !== "stable"){
+    await pc.setRemoteDescription(data.answer);
+    return;
+  }
+
+  setTimeout(pollAnswer,1000);
 }
 
 async function deriveKey(pass){
@@ -103,7 +122,11 @@ async function encrypt(msg){
 
 async function decrypt(payload){
   const obj=JSON.parse(payload);
-  const dec=await crypto.subtle.decrypt({name:"AES-GCM",iv:new Uint8Array(obj.iv)},key,new Uint8Array(obj.d));
+  const dec=await crypto.subtle.decrypt(
+    {name:"AES-GCM",iv:new Uint8Array(obj.iv)},
+    key,
+    new Uint8Array(obj.d)
+  );
   return new TextDecoder().decode(dec);
 }
 
@@ -132,38 +155,6 @@ async function startHost(){
   setStatus("Waiting for peer...");
   pollAnswer();
   pollCandidates();
-}
-
-async function pollAnswer(){
-  if(pc.connectionState === "connected") return;
-  const res = await fetch(`/api/session?id=${sessionId}`);
-  if(res.status!==200){
-    setTimeout(pollAnswer,1000);
-    return;
-  }
-
-  const data=await res.json();
-
-  // 🚨 IMPORTANT FIX
-  if(data.answer && pc.signalingState !== "stable"){
-    await pc.setRemoteDescription(data.answer);
-    return; // stop polling after setting answer
-  }
-
-  if(pc.signalingState !== "stable"){
-    setTimeout(pollAnswer,1000);
-  }
-
-  
-}
-
-  const data=await res.json();
-
-  if(data.answer){
-    await pc.setRemoteDescription(data.answer);
-  }else{
-    setTimeout(pollAnswer,1000);
-  }
 }
 
 async function startJoin(){
@@ -206,7 +197,7 @@ async function startJoin(){
 }
 
 async function send(){
-  if(!msg.value) return;
+  if(!msg.value || !channel) return;
   const enc=await encrypt(msg.value);
   channel.send(enc);
   chat.value+="Me: "+msg.value+"\n";
